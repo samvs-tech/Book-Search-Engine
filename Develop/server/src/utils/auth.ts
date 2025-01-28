@@ -1,42 +1,42 @@
 import jwt from 'jsonwebtoken';
+import { GraphQLError } from 'graphql';
 import dotenv from 'dotenv';
-
+import User  from '../models/index.js';
 dotenv.config();
 
-interface JwtPayload {
-  _id: string;
-  username: string;
-  email: string;
-}
 
-// Helper function to verify and decode a JWT
-export const authenticateToken = (token: string): JwtPayload | null => {
-  const secretKey = process.env.JWT_SECRET_KEY || '';
+
+export const authenticateToken = async ({ req }: any) => {
+  let token = req.body.token || req.query.token || req.headers.authorization;
+  if (req.headers.authorization) {
+    token = token.split(' ').pop().trim();
+  }
+
+  if (!token) {
+    return { user: null };
+  }
 
   try {
-    const decoded = jwt.verify(token, secretKey);
-    return decoded as JwtPayload;
+    const { data }: any = jwt.verify(token, process.env.JWT_SECRET_KEY || '', { maxAge: '2hr' });
+    const user = await User.findById(data._id);
+   return { user };
   } catch (err) {
-    console.error('Invalid token:', err.message);
-    return null;
+    console.log('Invalid token');
   }
+
+  return req;
 };
 
-// Helper function to sign a JWT
-export const signToken = (username: string, email: string, _id: string) => {
+export const signToken = (username: string, email: string, _id: unknown) => {
   const payload = { username, email, _id };
-  const secretKey = process.env.JWT_SECRET_KEY || '';
+  const secretKey: any = process.env.JWT_SECRET_KEY;
 
-  return jwt.sign(payload, secretKey, { expiresIn: '1h' });
+  return jwt.sign({ data: payload }, secretKey, { expiresIn: '2h' });
 };
 
-// Middleware-like function to attach user to the GraphQL context
-export const getUserFromToken = (token: string | undefined): JwtPayload | null => {
-  if (!token) {
-    return null;
+export class AuthenticationError extends GraphQLError {
+  constructor(message: string) {
+    super(message, undefined, undefined, undefined, ['UNAUTHENTICATED']);
+    Object.defineProperty(this, 'name', { value: 'AuthenticationError' });
   }
-
-  // Remove "Bearer " prefix if present
-  const cleanToken = token.startsWith('Bearer ') ? token.slice(7) : token;
-  return authenticateToken(cleanToken);
 };

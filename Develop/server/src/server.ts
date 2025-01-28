@@ -1,75 +1,53 @@
-import jwt from 'jsonwebtoken';
-import { GraphQLError } from 'graphql';
-import dotenv from 'dotenv';
-import { User } from '../models/index.js';
-dotenv.config();
+import express from 'express';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url'; // Import for __dirname equivalent in ES modules
+import db from './config/connection.js';
+import { ApolloServer } from '@apollo/server';
+import type { Request, Response } from 'express';
+import { expressMiddleware } from '@apollo/server/express4';
+import { typeDefs, resolvers } from './schemas/index.js';
+import { authenticateToken } from './utils/auth.js';
 
+// Define __filename and __dirname for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
+const server = new ApolloServer({
+  typeDefs,
+  resolvers,
+  introspection: true,
+});
 
-export const authenticateToken = async ({ req }: any) => {
-  // Allows token to be sent via req.body, req.query, or headers
-  let token = req.body.token || req.query.token || req.headers.authorization;
+const startApolloServer = async () => {
+  await server.start();
+  await db();
 
-  // If the token is sent in the authorization header, extract the token from the header
-  if (req.headers.authorization) {
-    token = token.split(' ').pop().trim();
-  }
+  const app = express();
+  const PORT = process.env.PORT || 3001;
 
-  // If no token is provided, return the request object as is
-  if (!token) {
-    return { user: null };
-  }
+  app.use(express.urlencoded({ extended: true }));
+  app.use(express.json());
 
-  // Try to verify the token
-  try {
-    const { data }: any = jwt.verify(token, process.env.JWT_SECRET_KEY || '', { maxAge: '2hr' });
-    const user = await User.findById(data._id);
-   return { user };
-  } catch (err) {
-    // If the token is invalid, log an error message
-    console.log('Invalid token');
-  }
+  app.use(
+    '/graphql',
+    expressMiddleware(server as any, {
+      context: authenticateToken as any,
+    })
+  );
 
-  // Return the request object
-  return req;
-};
+  // Serve static assets in production
+  if (process.env.NODE_ENV === 'production') {
+    app.use(express.static(path.join(__dirname, '../../client/dist')));
 
-export const signToken = (username: string, email: string, _id: string): string => {
-  const payload = { username, email, _id };
-  const secretKey = process.env.JWT_SECRET_KEY as string;
-
-  if (!secretKey) {
-    throw new Error('JWT_SECRET_KEY is not set in environment variables.');
-  }
-
-  return jwt.sign({ data: payload }, secretKey, { expiresIn: '2h' });
-};
-
-
-export class AuthenticationError extends GraphQLError {
-  constructor(message: string) {
-    super(message, {
-      extensions: {
-        code: 'UNAUTHENTICATED',
-        http: { status: 401 },
-      },
+    app.get('*', (_req: Request, res: Response) => {
+      res.sendFile(path.join(__dirname, '../../client/dist/index.html'));
     });
   }
-}
 
-export const context = async ({ req }: { req: any }) => {
-  const { user } = await authenticateToken({ req });
-  return { user };
+  app.listen(PORT, () => {
+    console.log(`API server running on port ${PORT}!`);
+    console.log(`Use GraphQL at http://localhost:${PORT}/graphql`);
+  });
 };
 
-const resolvers = {
-  Query: {
-    protectedData: async (_, __, { user }) => {
-      if (!user) {
-        throw new AuthenticationError('You must be logged in to access this resource.');
-      }
-
-      return 'Protected data for authenticated users only!';
-    },
-  },
-};
+startApolloServer();
