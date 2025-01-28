@@ -1,5 +1,5 @@
-import { User } from '../models/index.js'
-import { signToken, AuthenticationError } from '../utils/auth.js';
+import {User} from '../models/index.js'
+import {signToken, AuthenticationError} from '../utils/auth.js';
 console.log('hi')
 
 interface UserArgs {
@@ -56,20 +56,23 @@ const resolvers = {
             return {token, user}
         },
           saveBook: async (_parent: any, { input }: BookArgs, context: any) => {
+            // Check if the user is authenticated
             if (!context.user) {
                 throw new AuthenticationError('You need to be logged in');
             }
 
+            // Find and update the user, adding the book to their savedBooks
             const updatedUser = await User.findOneAndUpdate(
-                { _id: context.user._id },
+                { _id: context.user._id }, // Find the authenticated user
                 {
-                    $addToSet: {
-                        savedBooks: input,
+                    $addToSet: { // Prevent duplicate books
+                        savedBooks: input, // Add the book directly
                     },
                 },
-                { new: true }
-            ).populate('savedBooks');
+                { new: true } // Return the updated user document
+            ).populate('savedBooks'); // Optional: Populate savedBooks if they're references
 
+            // Return the updated user with the newly saved book
             return updatedUser;
         },
    removeBook: async (_parent: any, { bookId }: { bookId: string }, context: any) => {
@@ -98,7 +101,6 @@ const resolvers = {
       }
     },
     },
-
     }
 
 
